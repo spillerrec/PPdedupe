@@ -154,15 +154,10 @@ struct SubFile{
 	}
 };
 
-int main( int argc, char* argv[] ){
-	if( argc != 2 ){
-		printf( "PPdedupe PP_FILE_PATH\n" );
-		return -1;
-	}
-	
-	
+void dedupePP( const char* filepath ){
+	printf( "Processing file: %s\n", filepath );
 	printf( "Reading header...\n" );
-	File file( argv[1] );
+	File file( filepath );
 	
 	auto header = file.read( 8 );
 	//TODO: Check magic
@@ -222,7 +217,7 @@ int main( int argc, char* argv[] ){
 	
 	
 	printf( "Saving file...\n" );
-	auto output_filename = std::string( argv[1] ) + ".deduped.pp";
+	auto output_filename = std::string( filepath ) + ".deduped.pp";
 	File outfile( output_filename.c_str(), "wb" );
 	outfile.write( { magic, sizeof(magic) } );
 	outfile.write( HeaderDecrypter().encrypt( unsigned32ToBuffer( version ) ) );
@@ -259,7 +254,18 @@ int main( int argc, char* argv[] ){
 	printf( "Total saved:         %10u bytes\n", saved_bytes );
 	printf( "Resulting data size: %10u bytes\n", used_bytes );
 	printf( "Old data size:       %10u bytes\n", saved_bytes + used_bytes );
+	printf( "\n\n" );
+}
+
+
+int main( int argc, char* argv[] ){
+	if( argc < 2 ){
+		printf( "PPdedupe PP_FILE_PATH ...\n" );
+		return -1;
+	}
+	
+	for( int i=1; i<argc; i++ )
+		dedupePP( argv[i] );
 	
 	return 0;
 }
-
