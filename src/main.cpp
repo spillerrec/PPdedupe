@@ -182,6 +182,9 @@ int main( int argc, char* argv[] ){
 	for( int i=0; i<file_amount; i++ )
 		files.emplace_back( file, decrypter );
 	
+	decrypter = HeaderDecrypter();
+	auto header_lenght = read32u( file, decrypter );
+	
 	printf( "Calculating checksums...\n" );
 	for( auto& subfile : files ){
 		auto bytes = subfile.getFile( file );
@@ -218,7 +221,7 @@ int main( int argc, char* argv[] ){
 	}
 	
 	
-	printf( "Saving file... (TODO)\n" );
+	printf( "Saving file...\n" );
 	auto output_filename = std::string( argv[1] ) + ".deduped.pp";
 	File outfile( output_filename.c_str(), "wb" );
 	outfile.write( { magic, sizeof(magic) } );
@@ -230,7 +233,9 @@ int main( int argc, char* argv[] ){
 	for( auto& subfile : files )
 		subfile.writeHeader( outfile, encrypter );
 	
-	outfile.write( HeaderDecrypter().encrypt( unsigned32ToBuffer( outfile.currentOffset() ) ) );
+	auto new_header_lenght = outfile.currentOffset() + 4;
+	assert( header_lenght == new_header_lenght );
+	outfile.write( HeaderDecrypter().encrypt( unsigned32ToBuffer( new_header_lenght ) ) );
 	
 	for( auto& subfile : files ){
 		if( !subfile.deduped ){
