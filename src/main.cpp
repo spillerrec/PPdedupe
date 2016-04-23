@@ -1,6 +1,7 @@
 /*	This file is part of PPdedupe, which is free software and is licensed
  * under the terms of the GNU GPL v3.0. (see http://www.gnu.org/licenses/ ) */
 
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <memory>
@@ -16,8 +17,11 @@ class Buffer{
 	public:
 		Buffer() = default;
 		Buffer( size_t lenght ) : buffer( std::make_unique<uint8_t[]>( lenght ) ), lenght(lenght) { }
+		Buffer( const uint8_t* data, size_t lenght ) : Buffer( lenght )
+			{ std::copy( data, data+lenght, buffer.get() ); }
 		
 		auto data(){ return buffer.get(); }
+		const uint8_t* data() const{ return buffer.get(); }
 		auto size() const{ return lenght; }
 		
 		auto begin(){ return buffer.get(); }
@@ -32,14 +36,14 @@ class File{
 		FILE* handle;
 	
 	public:
-		File( const char* filepath ) : handle( std::fopen( filepath, "rb" ) ) {
+		File( const char* filepath, const char* const modifier="rb" ) : handle( std::fopen( filepath, modifier ) ) {
 			//TODO: throw on (handle == nullptr)
 		}
 		~File(){ std::fclose( handle ); }
 		
-		void read( Buffer& buf ){
-			fread( buf.data(), 1, buf.size(), handle );
-		}
+		void read(        Buffer& buf ) { fread(  buf.data(), 1, buf.size(), handle ); }
+		void write( const Buffer& buf ) { fwrite( buf.data(), 1, buf.size(), handle ); }
+		long int currentOffset(){ return ftell( handle ); }
 		
 		int seek( long int offset, int origin )
 			{ return fseek( handle, offset, origin ); }
@@ -59,6 +63,17 @@ unsigned convert32unsigned( const Buffer& b ){
 	return convert32unsigned( b[0], b[1], b[2], b[3] );
 }
 
+Buffer unsigned32ToBuffer( uint32_t value ){
+	Buffer buf( 4 );
+	for( int i=0; i<4; i++ ){
+		buf[i] = value % 256;
+		value /= 256;
+	}
+	assert( value == 0 );
+	
+	return buf;
+}
+
 
 const uint8_t magic[] = {0x5B, 0x50, 0x50, 0x56, 0x45, 0x52, 0x5D, 0x00}; // "[PPVER]\0"
 
@@ -76,6 +91,12 @@ class HeaderDecrypter{
 				val ^= mask[mask_index];
 				index++;
 			}
+		}
+		
+		Buffer encrypt( const Buffer& buffer ){
+			Buffer copy( buffer.data(), buffer.size() );
+			decrypt( copy );
+			return copy;
 		}
 };
 
@@ -104,6 +125,13 @@ struct SubFile{
 		decrypter.decrypt( metadata );
 	}
 	
+	void writeHeader( File& file, HeaderDecrypter& encrypter ){
+		file.write( encrypter.encrypt( filename ) );
+		file.write( encrypter.encrypt( unsigned32ToBuffer( size ) ) );
+		file.write( encrypter.encrypt( unsigned32ToBuffer( output_offset ) ) );
+		file.write( encrypter.encrypt( metadata ) );
+	}
+	
 	Buffer getFile( File& file ) const{
 		file.seek( offset, 0 );
 		return file.read( size );
@@ -127,8 +155,11 @@ struct SubFile{
 };
 
 int main( int argc, char* argv[] ){
-	if( argc < 2 )
+	if( argc != 2 ){
+		printf( "PPdedupe PP_FILE_PATH\n" );
 		return -1;
+	}
+	
 	
 	printf( "Reading header...\n" );
 	File file( argv[1] );
@@ -161,6 +192,7 @@ int main( int argc, char* argv[] ){
 	//	printf( "%X - %s\n", subfile.checksum, subfile.filename.data() );
 	}
 	
+	
 	printf( "Finding dupes...\n" );
 	for( int i=0; i<files.size(); i++ ){
 		auto& current = files[i];
@@ -172,23 +204,51 @@ int main( int argc, char* argv[] ){
 				files[j].equalTo( current, file );
 	}
 	
-	printf( "De-fragmenting file... (TODO)\n" );
+	
+	printf( "Calculates new offsets file...\n" );
+	uint32_t offset = 17 + 288*files.size() + 4; //This is the end of the header (at least it should be)
+	
+	for( auto& subfile : files ){
+		if( subfile.deduped )
+			subfile.output_offset = subfile.deduped->output_offset;
+		else{
+			subfile.output_offset = offset;
+			offset += subfile.size;
+		}
+	}
 	
 	
 	printf( "Saving file... (TODO)\n" );
+	auto output_filename = std::string( argv[1] ) + ".deduped.pp";
+	File outfile( output_filename.c_str(), "wb" );
+	outfile.write( { magic, sizeof(magic) } );
+	outfile.write( HeaderDecrypter().encrypt( unsigned32ToBuffer( version ) ) );
+	outfile.write( unknown1 );
+	outfile.write( HeaderDecrypter().encrypt( unsigned32ToBuffer( files.size() ) ) );
+	
+	HeaderDecrypter encrypter;
+	for( auto& subfile : files )
+		subfile.writeHeader( outfile, encrypter );
+	
+	outfile.write( HeaderDecrypter().encrypt( unsigned32ToBuffer( outfile.currentOffset() ) ) );
+	
+	for( auto& subfile : files ){
+		if( !subfile.deduped ){
+			assert( outfile.currentOffset() == subfile.output_offset );
+			outfile.write( subfile.getFile( file ) );
+		}
+	}
 	
 	
 	printf( "\n-------- Result --------\n" );
+	unsigned used_bytes = offset;
 	unsigned saved_bytes = 0;
-	unsigned used_bytes = 0;
 	unsigned duped_files = 0;
 	for( auto& subfile : files )
 		if( subfile.deduped ){
 			saved_bytes += subfile.size;
 			duped_files++;
 		}
-		else
-			used_bytes += subfile.size;
 	
 	printf( "Duplicated files: %u\n", duped_files );
 	printf( "Total saved:         %10u bytes\n", saved_bytes );
