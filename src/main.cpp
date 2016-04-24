@@ -43,7 +43,7 @@ class File{
 		
 		void read(        Buffer& buf ) { fread(  buf.data(), 1, buf.size(), handle ); }
 		void write( const Buffer& buf ) { fwrite( buf.data(), 1, buf.size(), handle ); }
-		long int currentOffset(){ return ftell( handle ); }
+		unsigned long int currentOffset(){ return ftell( handle ); } //TODO: throw on -1L
 		
 		int seek( long int offset, int origin )
 			{ return fseek( handle, offset, origin ); }
@@ -174,7 +174,7 @@ void dedupePP( const char* filepath ){
 	
 	std::vector<SubFile> files;
 	files.reserve( file_amount );
-	for( int i=0; i<file_amount; i++ )
+	for( unsigned i=0; i<file_amount; i++ )
 		files.emplace_back( file, decrypter );
 	
 	decrypter = HeaderDecrypter();
@@ -192,12 +192,12 @@ void dedupePP( const char* filepath ){
 	
 	
 	printf( "Finding dupes...\n" );
-	for( int i=0; i<files.size(); i++ ){
+	for( unsigned i=0; i<files.size(); i++ ){
 		auto& current = files[i];
 		if( current.deduped )
 			continue;
 		
-		for( int j=i+1; j<files.size(); j++ )
+		for( unsigned j=i+1; j<files.size(); j++ )
 			if( current.checksum == files[j].checksum )
 				files[j].equalTo( current, file );
 	}
